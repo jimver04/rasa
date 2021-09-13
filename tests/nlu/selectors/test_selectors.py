@@ -2,18 +2,23 @@ import copy
 
 import pytest
 import numpy as np
-from typing import List, Dict, Text, Any, Optional, Union, Callable
+from typing import List, Dict, Text, Any, Optional, Type, Union, Callable
 from unittest.mock import Mock
 
 from _pytest.monkeypatch import MonkeyPatch
 
 import rasa.model
+from rasa.nlu.featurizers.sparse_featurizer.count_vectors_featurizer import \
+    CountVectorsFeaturizerGraphComponent
+from rasa.nlu.featurizers.sparse_featurizer.lexical_syntactic_featurizer import \
+    LexicalSyntacticFeaturizerGraphComponent
+from rasa.nlu.featurizers.sparse_featurizer.regex_featurizer import \
+    RegexFeaturizerGraphComponent
+from rasa.nlu.tokenizers.whitespace_tokenizer import WhitespaceTokenizerGraphComponent
 import rasa.nlu.train
-from rasa.engine.graph import ExecutionContext
+from rasa.engine.graph import ExecutionContext, GraphComponent, GraphSchema
 from rasa.engine.storage.resource import Resource
 from rasa.engine.storage.storage import ModelStorage
-from rasa.nlu import registry
-from rasa.nlu.components import Component
 from rasa.shared.importers.rasa import RasaFileImporter
 from rasa.shared.nlu.training_data import util
 import rasa.shared.nlu.training_data.loading
@@ -47,6 +52,7 @@ from rasa.nlu.selectors.response_selector import ResponseSelectorGraphComponent
 from rasa.shared.nlu.training_data.message import Message
 from rasa.shared.nlu.training_data.training_data import TrainingData
 
+# TODO: JUZL: Clean all this up?
 
 @pytest.fixture()
 def response_selector_training_data() -> TrainingData:
@@ -114,15 +120,14 @@ def test_train_selector(
     create_response_selector: Callable[
         [Dict[Text, Any]], ResponseSelectorGraphComponent
     ],
+    default_model_storage: ModelStorage,
 ):
-    pipeline = [{"name": "WhitespaceTokenizer"}, {"name": "CountVectorsFeaturizer"}]
-    loaded_pipeline = [
-        registry.get_component_class(component.pop("name"))(component)
-        for component in copy.deepcopy(pipeline)
+    pipeline = [
+        {"component": WhitespaceTokenizerGraphComponent},
+        {"component": CountVectorsFeaturizerGraphComponent},
     ]
-
-    for component in loaded_pipeline:
-        component.train(response_selector_training_data)
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
+    train_pipeline(loaded_pipeline, response_selector_training_data)
 
     response_selector = create_response_selector(config_params)
 
@@ -130,7 +135,7 @@ def test_train_selector(
 
     message = Message(data={TEXT: "hello"})
     for component in loaded_pipeline:
-        component.process(message)
+        component.process([message])
 
     classified_message = response_selector.process([message])[0]
 
@@ -249,25 +254,48 @@ def test_resolve_intent_response_key_from_label(
     )
 
 
-def load_pipeline(pipeline: List[Dict[Text, Text]]) -> List[Component]:
+def load_pipeline(
+    pipeline: List[Dict[Text, Any]], default_model_storage: ModelStorage
+) -> List[GraphComponent]:
+    def load_component(
+        component_class: Type[GraphComponent], config: Dict[Text, Any]
+    ) -> GraphComponent:
+        execution_context = ExecutionContext(
+            GraphSchema({}), node_name=str(component_class)
+        )
+        resource = Resource(str(component_class))
+        return component_class.create(
+            {**component_class.get_default_config(), **config},
+            default_model_storage,
+            resource,
+            execution_context,
+        )
+
     loaded_pipeline = [
-        registry.get_component_class(component.pop("name"))(component)
+        load_component(component.pop("component"), component)
         for component in copy.deepcopy(pipeline)
     ]
 
     return loaded_pipeline
 
 
-def train_pipeline(
-    loaded_pipeline: List[Component], training_data_paths: List[Text],
+def train_pipeline_from_path(
+    loaded_pipeline: List[GraphComponent], training_data_paths: List[Text],
 ) -> TrainingData:
     importer = RasaFileImporter(training_data_paths=training_data_paths)
     training_data = importer.get_nlu_data()
 
-    for component in loaded_pipeline:
-        component.train(training_data)
+    train_pipeline(loaded_pipeline, training_data)
 
     return training_data
+
+
+def train_pipeline(loaded_pipeline, training_data):
+    for component in loaded_pipeline:
+        if hasattr(component, "train"):
+            component.train(training_data)
+        if hasattr(component, "process_training_data"):
+            component.process_training_data(training_data)
 
 
 def test_train_model_checkpointing(
@@ -277,9 +305,9 @@ def test_train_model_checkpointing(
     default_model_storage: ModelStorage,
 ):
     pipeline = [
-        {"name": "WhitespaceTokenizer"},
+        {"component": WhitespaceTokenizerGraphComponent},
         {
-            "name": "CountVectorsFeaturizer",
+            "component": CountVectorsFeaturizerGraphComponent,
             "analyzer": "char_wb",
             "min_ngram": 3,
             "max_ngram": 17,
@@ -288,8 +316,8 @@ def test_train_model_checkpointing(
         },
     ]
 
-    loaded_pipeline = load_pipeline(pipeline)
-    training_data = train_pipeline(loaded_pipeline, ["data/test_selectors"])
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
+    training_data = train_pipeline_from_path(loaded_pipeline, ["data/test_selectors"])
 
     config_params = {
         EPOCHS: 5,
@@ -326,9 +354,10 @@ def _train_persist_load_with_different_settings(
     load_response_selector: Callable[[Dict[Text, Any]], ResponseSelectorGraphComponent],
     should_finetune: bool,
     default_execution_context: ExecutionContext,
+    default_model_storage: ModelStorage,
 ):
-    loaded_pipeline = load_pipeline(pipeline)
-    training_data = train_pipeline(
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
+    training_data = train_pipeline_from_path(
         loaded_pipeline, ["data/examples/rasa/demo-rasa.yml"]
     )
 
@@ -341,7 +370,7 @@ def _train_persist_load_with_different_settings(
     message = Message(data={TEXT: "Rasa is great!"})
 
     for component in loaded_pipeline:
-        component.process(message)
+        component.process([message])
 
     message2 = copy.deepcopy(message)
 
@@ -361,10 +390,11 @@ def test_train_persist_load(
     ],
     load_response_selector: Callable[[Dict[Text, Any]], ResponseSelectorGraphComponent],
     default_execution_context: ExecutionContext,
+    default_model_storage: ModelStorage,
 ):
     pipeline = [
-        {"name": "WhitespaceTokenizer"},
-        {"name": "CountVectorsFeaturizer"},
+        {"component": WhitespaceTokenizerGraphComponent},
+        {"component": CountVectorsFeaturizerGraphComponent},
     ]
     config_params = {EPOCHS: 1}
 
@@ -375,6 +405,7 @@ def test_train_persist_load(
         load_response_selector,
         False,
         default_execution_context,
+        default_model_storage,
     )
 
     _train_persist_load_with_different_settings(
@@ -384,6 +415,7 @@ def test_train_persist_load(
         load_response_selector,
         True,
         default_execution_context,
+        default_model_storage,
     )
 
 
@@ -392,15 +424,16 @@ async def test_process_gives_diagnostic_data(
     create_response_selector: Callable[
         [Dict[Text, Any]], ResponseSelectorGraphComponent
     ],
+    default_model_storage: ModelStorage,
 ):
     """Tests if processing a message returns attention weights as numpy array."""
     pipeline = [
-        {"name": "WhitespaceTokenizer"},
-        {"name": "CountVectorsFeaturizer"},
+        {"component": WhitespaceTokenizerGraphComponent},
+        {"component": CountVectorsFeaturizerGraphComponent},
     ]
     config_params = {EPOCHS: 1}
 
-    loaded_pipeline = load_pipeline(pipeline)
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
 
     importer = RasaFileImporter(
         config_file="data/test_response_selector_bot/config.yml",
@@ -413,8 +446,7 @@ async def test_process_gives_diagnostic_data(
     )
     training_data = importer.get_nlu_data()
 
-    for component in loaded_pipeline:
-        component.train(training_data)
+    train_pipeline(loaded_pipeline, training_data)
 
     default_execution_context.should_add_diagnostic_data = True
 
@@ -424,7 +456,7 @@ async def test_process_gives_diagnostic_data(
     message = Message(data={TEXT: "hello"})
 
     for component in loaded_pipeline:
-        component.process(message)
+        component.process([message])
 
     classified_message = response_selector.process([message])[0]
     diagnostic_data = classified_message.get(DIAGNOSTIC_DATA)
@@ -452,13 +484,14 @@ async def test_cross_entropy_with_linear_norm(
     create_response_selector: Callable[
         [Dict[Text, Any]], ResponseSelectorGraphComponent
     ],
+    default_model_storage: ModelStorage,
 ):
     pipeline = [
-        {"name": "WhitespaceTokenizer"},
-        {"name": "CountVectorsFeaturizer"},
+        {"component": WhitespaceTokenizerGraphComponent},
+        {"component": CountVectorsFeaturizerGraphComponent},
     ]
-    loaded_pipeline = load_pipeline(pipeline)
-    training_data = train_pipeline(loaded_pipeline, ["data/test_selectors"])
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
+    training_data = train_pipeline_from_path(loaded_pipeline, ["data/test_selectors"])
 
     response_selector = create_response_selector(classifier_params)
     response_selector.train(training_data=training_data)
@@ -466,7 +499,7 @@ async def test_cross_entropy_with_linear_norm(
     message = Message(data={TEXT: "hello"})
 
     for component in loaded_pipeline:
-        component.process(message)
+        component.process([message])
 
     mock = Mock()
     monkeypatch.setattr(train_utils, "normalize", mock.normalize)
@@ -499,13 +532,14 @@ async def test_margin_loss_is_not_normalized(
     create_response_selector: Callable[
         [Dict[Text, Any]], ResponseSelectorGraphComponent
     ],
+    default_model_storage: ModelStorage,
 ):
     pipeline = [
-        {"name": "WhitespaceTokenizer"},
-        {"name": "CountVectorsFeaturizer"},
+        {"component": WhitespaceTokenizerGraphComponent},
+        {"component": CountVectorsFeaturizerGraphComponent},
     ]
-    loaded_pipeline = load_pipeline(pipeline)
-    training_data = train_pipeline(loaded_pipeline, ["data/test_selectors"])
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
+    training_data = train_pipeline_from_path(loaded_pipeline, ["data/test_selectors"])
 
     response_selector = create_response_selector(classifier_params)
     response_selector.train(training_data=training_data)
@@ -513,7 +547,7 @@ async def test_margin_loss_is_not_normalized(
     message = Message(data={TEXT: "hello"})
 
     for component in loaded_pipeline:
-        component.process(message)
+        component.process([message])
 
     mock = Mock()
     monkeypatch.setattr(train_utils, "normalize", mock.normalize)
@@ -545,13 +579,14 @@ async def test_softmax_ranking(
     create_response_selector: Callable[
         [Dict[Text, Any]], ResponseSelectorGraphComponent
     ],
+    default_model_storage: ModelStorage,
 ):
     pipeline = [
-        {"name": "WhitespaceTokenizer"},
-        {"name": "CountVectorsFeaturizer"},
+        {"component": WhitespaceTokenizerGraphComponent},
+        {"component": CountVectorsFeaturizerGraphComponent},
     ]
-    loaded_pipeline = load_pipeline(pipeline)
-    training_data = train_pipeline(loaded_pipeline, ["data/test_selectors"])
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
+    training_data = train_pipeline_from_path(loaded_pipeline, ["data/test_selectors"])
 
     response_selector = create_response_selector(classifier_params)
     response_selector.train(training_data=training_data)
@@ -559,7 +594,7 @@ async def test_softmax_ranking(
     message = Message(data={TEXT: "hello"})
 
     for component in loaded_pipeline:
-        component.process(message)
+        component.process([message])
 
     classified_message = response_selector.process([message])[0]
 
@@ -692,6 +727,7 @@ async def test_adjusting_layers_incremental_training(
         [Dict[Text, Any]], ResponseSelectorGraphComponent
     ],
     load_response_selector: Callable[[Dict[Text, Any]], ResponseSelectorGraphComponent],
+    default_model_storage: ModelStorage,
 ):
     """Tests adjusting sparse layers of `ResponseSelector` to increased sparse
        feature sizes during incremental training.
@@ -704,19 +740,19 @@ async def test_adjusting_layers_incremental_training(
     iter1_data_path = "data/test_incremental_training/iter1/"
     iter2_data_path = "data/test_incremental_training/"
     pipeline = [
-        {"name": "WhitespaceTokenizer"},
-        {"name": "LexicalSyntacticFeaturizer"},
-        {"name": "RegexFeaturizer"},
-        {"name": "CountVectorsFeaturizer"},
+        {"component": WhitespaceTokenizerGraphComponent},
+        {"component": LexicalSyntacticFeaturizerGraphComponent},
+        {"component": RegexFeaturizerGraphComponent},
+        {"component": CountVectorsFeaturizerGraphComponent},
         {
-            "name": "CountVectorsFeaturizer",
+            "component": CountVectorsFeaturizerGraphComponent,
             "analyzer": "char_wb",
             "min_ngram": 1,
             "max_ngram": 4,
         },
     ]
-    loaded_pipeline = load_pipeline(pipeline)
-    training_data = train_pipeline(loaded_pipeline, [iter1_data_path])
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
+    training_data = train_pipeline_from_path(loaded_pipeline, [iter1_data_path])
 
     response_selector = create_response_selector({EPOCHS: 1})
     response_selector.train(training_data=training_data)
@@ -727,7 +763,7 @@ async def test_adjusting_layers_incremental_training(
     message = Message(data={TEXT: "Rasa is great!"})
 
     for component in loaded_pipeline:
-        component.process(message)
+        component.process([message])
 
     message2 = copy.deepcopy(message)
 
@@ -762,13 +798,13 @@ async def test_adjusting_layers_incremental_training(
 
     assert classified_message2.fingerprint() == classified_message.fingerprint()
 
-    training_data2 = train_pipeline(loaded_pipeline, [iter2_data_path])
+    training_data2 = train_pipeline_from_path(loaded_pipeline, [iter2_data_path])
 
     response_selector.train(training_data=training_data2)
 
     new_message = Message.build(text="Rasa is great!")
     for component in loaded_pipeline:
-        component.process(new_message)
+        component.process([new_message])
 
     classified_new_message = response_selector.process([new_message])[0]
     new_sparse_feature_sizes = classified_new_message.get_sparse_feature_sizes(
@@ -877,29 +913,31 @@ async def test_sparse_feature_sizes_decreased_incremental_training(
     ],
     load_response_selector: Callable[[Dict[Text, Any]], ResponseSelectorGraphComponent],
     default_execution_context: ExecutionContext,
+    default_model_storage: ModelStorage,
 ):
     pipeline = [
-        {"name": "WhitespaceTokenizer"},
-        {"name": "LexicalSyntacticFeaturizer"},
-        {"name": "RegexFeaturizer"},
-        {"name": "CountVectorsFeaturizer"},
+        {"component": WhitespaceTokenizerGraphComponent},
+        {"component": LexicalSyntacticFeaturizerGraphComponent},
+        {"component": RegexFeaturizerGraphComponent},
+        {"component": CountVectorsFeaturizerGraphComponent},
         {
-            "name": "CountVectorsFeaturizer",
+            "component": CountVectorsFeaturizerGraphComponent,
             "analyzer": "char_wb",
             "min_ngram": 1,
             "max_ngram": 4,
         },
     ]
-    loaded_pipeline = load_pipeline(pipeline)
-    training_data = train_pipeline(loaded_pipeline, [iter1_path])
+    loaded_pipeline = load_pipeline(pipeline, default_model_storage)
+    training_data = train_pipeline_from_path(loaded_pipeline, [iter1_path])
 
     response_selector = create_response_selector({EPOCHS: 1})
     response_selector.train(training_data=training_data)
 
     message = Message(data={TEXT: "Rasa is great!"})
 
+    # TODO: JUZL: This is EVERYWHERE!
     for component in loaded_pipeline:
-        component.process(message)
+        component.process([message])
 
     message2 = copy.deepcopy(message)
 
@@ -915,10 +953,10 @@ async def test_sparse_feature_sizes_decreased_incremental_training(
 
     if should_raise_exception:
         with pytest.raises(Exception) as exec_info:
-            training_data2 = train_pipeline(loaded_pipeline, [iter2_path])
+            training_data2 = train_pipeline_from_path(loaded_pipeline, [iter2_path])
             loaded_selector.train(training_data=training_data2)
         assert "Sparse feature sizes have decreased" in str(exec_info.value)
     else:
-        training_data2 = train_pipeline(loaded_pipeline, [iter2_path])
+        training_data2 = train_pipeline_from_path(loaded_pipeline, [iter2_path])
         loaded_selector.train(training_data=training_data2)
         assert loaded_selector.model

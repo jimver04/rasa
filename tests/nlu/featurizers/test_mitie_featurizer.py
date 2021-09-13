@@ -11,7 +11,7 @@ from rasa.nlu.constants import TOKENS_NAMES
 from rasa.shared.nlu.constants import TEXT, INTENT, RESPONSE
 from rasa.shared.nlu.training_data.training_data import TrainingData
 from rasa.shared.nlu.training_data.message import Message
-from rasa.nlu.tokenizers.mitie_tokenizer import MitieTokenizer
+from rasa.nlu.tokenizers.mitie_tokenizer import MitieTokenizerGraphComponent
 from rasa.nlu.featurizers.dense_featurizer.mitie_featurizer import (
     MitieFeaturizerGraphComponent,
 )
@@ -54,6 +54,12 @@ def create(
     return inner
 
 
+def create_tokenizer():
+    return MitieTokenizerGraphComponent(
+        MitieTokenizerGraphComponent.get_default_config()
+    )
+
+
 def test_mitie_featurizer(
     create: Callable[[Dict[Text, Any]], MitieFeaturizerGraphComponent],
     mitie_model: MitieModel,
@@ -63,7 +69,7 @@ def test_mitie_featurizer(
 
     sentence = "Hey how are you today"
     message = Message(data={TEXT: sentence})
-    MitieTokenizer().process(message)
+    create_tokenizer().process([message])
     tokens = message.get(TOKENS_NAMES[TEXT])
 
     seq_vec, sen_vec = featurizer.features_for_tokens(
@@ -91,7 +97,7 @@ def test_mitie_featurizer_train(
     message = Message(data={TEXT: sentence})
     message.set(RESPONSE, sentence)
     message.set(INTENT, "intent")
-    MitieTokenizer().train(TrainingData([message]))
+    create_tokenizer().process_training_data(TrainingData([message]))
 
     featurizer.process_training_data(TrainingData([message]), mitie_model)
 

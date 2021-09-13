@@ -4,12 +4,18 @@ import pytest
 
 import rasa.core.interpreter
 from rasa.core.interpreter import RasaNLUHttpInterpreter, RasaNLUInterpreter
-from rasa.nlu.tokenizers.whitespace_tokenizer import WhitespaceTokenizer
+from rasa.nlu.tokenizers.whitespace_tokenizer import WhitespaceTokenizerGraphComponent
 from rasa.shared.nlu.interpreter import RegexInterpreter
 from rasa.model import get_model_subdirectories, get_model
 from rasa.nlu.model import Interpreter
 from rasa.shared.nlu.training_data.message import Message
 from rasa.utils.endpoints import EndpointConfig
+
+
+def create_whitespace_tokenizer():
+    return WhitespaceTokenizerGraphComponent(
+        WhitespaceTokenizerGraphComponent.get_default_config()
+    )
 
 
 @pytest.mark.parametrize(
@@ -78,7 +84,7 @@ async def test_interpreter_parses_text_tokens(
     response_selector_interpreter: Interpreter,
 ):
     text = "Hello there"
-    tokenizer = WhitespaceTokenizer()
+    tokenizer = create_whitespace_tokenizer()
     tokens = tokenizer.tokenize(Message(data={"text": text}), "text")
     indices = [(t.start, t.end) for t in tokens]
 

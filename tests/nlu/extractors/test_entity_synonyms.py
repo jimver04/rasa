@@ -1,3 +1,4 @@
+# TODO: JUZL: once component is migrated.
 from rasa.nlu.extractors.entity_synonyms import EntitySynonymMapper
 from rasa.shared.nlu.constants import TEXT, ENTITIES
 from rasa.shared.nlu.training_data.training_data import TrainingData

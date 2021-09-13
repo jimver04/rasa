@@ -4,9 +4,15 @@ import pytest
 
 from rasa.shared.nlu.constants import TEXT, SPLIT_ENTITIES_BY_COMMA
 from rasa.shared.nlu.training_data.message import Message
-from rasa.nlu.extractors.extractor import EntityExtractorMixin as EntityExtractor
-from rasa.nlu.tokenizers.whitespace_tokenizer import WhitespaceTokenizer
+from rasa.nlu.extractors.extractor import EntityExtractorMixin
+from rasa.nlu.tokenizers.whitespace_tokenizer import WhitespaceTokenizerGraphComponent
 from rasa.shared.nlu.training_data.formats.rasa_yaml import RasaYAMLReader
+
+
+def create_whitespace_tokenizer():
+    return WhitespaceTokenizerGraphComponent(
+        WhitespaceTokenizerGraphComponent.get_default_config()
+    )
 
 
 @pytest.mark.parametrize(
@@ -222,8 +228,8 @@ def test_convert_tags_to_entities(
     confidences: Dict[Text, List[float]],
     expected_entities: List[Dict[Text, Any]],
 ):
-    extractor = EntityExtractor()
-    tokenizer = WhitespaceTokenizer()
+    extractor = EntityExtractorMixin()
+    tokenizer = create_whitespace_tokenizer()
 
     message = Message(data={TEXT: text})
     tokens = tokenizer.tokenize(message, TEXT)
@@ -397,8 +403,8 @@ def test_split_entities_by_comma(
     confidences: Dict[Text, List[float]],
     expected_entities: List[Dict[Text, Any]],
 ):
-    extractor = EntityExtractor()
-    tokenizer = WhitespaceTokenizer()
+    extractor = EntityExtractorMixin()
+    tokenizer = create_whitespace_tokenizer()
 
     message = Message(data={TEXT: text})
     tokens = tokenizer.tokenize(message, TEXT)
@@ -465,13 +471,13 @@ def test_split_entities_by_comma(
 )
 def test_check_correct_entity_annotations(text: Text, warnings: int):
     reader = RasaYAMLReader()
-    tokenizer = WhitespaceTokenizer()
+    tokenizer = create_whitespace_tokenizer()
 
     training_data = reader.reads(text)
-    tokenizer.train(training_data)
+    tokenizer.process_training_data(training_data)
 
     with pytest.warns(UserWarning) as record:
-        EntityExtractor.check_correct_entity_annotations(training_data)
+        EntityExtractorMixin.check_correct_entity_annotations(training_data)
 
     assert len(record) == warnings
     assert all(

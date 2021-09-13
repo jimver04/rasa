@@ -3,12 +3,18 @@ from typing import Text, List, Optional
 from _pytest.logging import LogCaptureFixture
 import pytest
 
+from rasa.nlu.tokenizers.whitespace_tokenizer import WhitespaceTokenizerGraphComponent
 import rasa.nlu.utils.bilou_utils as bilou_utils
 from rasa.nlu.constants import BILOU_ENTITIES
 from rasa.shared.nlu.constants import ENTITIES
-from rasa.nlu.tokenizers.whitespace_tokenizer import WhitespaceTokenizer
 from rasa.shared.nlu.training_data.training_data import TrainingData
 from rasa.shared.nlu.training_data.message import Message
+
+
+def create_whitespace_tokenizer():
+    return WhitespaceTokenizerGraphComponent(
+        WhitespaceTokenizerGraphComponent.get_default_config()
+    )
 
 
 @pytest.mark.parametrize(
@@ -88,7 +94,7 @@ def test_build_tag_id_dict():
 
 
 def test_apply_bilou_schema():
-    tokenizer = WhitespaceTokenizer()
+    tokenizer = create_whitespace_tokenizer()
 
     message_1 = Message.build(
         text="Germany is part of the European Union", intent="inform"
@@ -117,7 +123,7 @@ def test_apply_bilou_schema():
 
     training_data = TrainingData([message_1, message_2])
 
-    tokenizer.train(training_data)
+    tokenizer.process_training_data(training_data)
 
     bilou_utils.apply_bilou_schema(training_data)
 

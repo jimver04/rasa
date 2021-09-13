@@ -16,12 +16,11 @@ import rasa.shared.nlu.training_data.loading
 import rasa.shared.utils.io
 import rasa.utils.io
 import rasa.model
+
+# TODO: JUZL:
 from rasa.nlu.classifiers.fallback_classifier import FallbackClassifier
 from rasa.nlu.components import ComponentBuilder
 from rasa.nlu.config import RasaNLUModelConfig
-from rasa.nlu.extractors.crf_entity_extractor import CRFEntityExtractor
-from rasa.nlu.extractors.mitie_entity_extractor import MitieEntityExtractor
-from rasa.nlu.extractors.spacy_entity_extractor import SpacyEntityExtractor
 from rasa.nlu.model import Interpreter
 from rasa.core.interpreter import RasaNLUInterpreter
 from rasa.nlu.test import (
@@ -200,7 +199,7 @@ def test_determine_token_labels_throws_error():
         determine_token_labels(
             CH_correct_segmentation[0],
             [CH_correct_entity, CH_wrong_entity],
-            [CRFEntityExtractor.name],
+            {"CRFEntityExtractor"},
         )
 
 
@@ -220,7 +219,7 @@ def test_determine_token_labels_with_extractors():
     label = determine_token_labels(
         CH_correct_segmentation[0],
         [CH_correct_entity, CH_wrong_entity],
-        [SpacyEntityExtractor.name, MitieEntityExtractor.name],
+        {"SpacyEntityExtractor", "MitieEntityExtractor"},
     )
     assert label == "direction"
 

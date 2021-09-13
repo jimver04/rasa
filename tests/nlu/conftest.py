@@ -4,7 +4,7 @@ from rasa.nlu.config import RasaNLUModelConfig
 from rasa.nlu.components import ComponentBuilder
 from rasa.utils.tensorflow.constants import EPOCHS, RANDOM_SEED
 
-
+# TODO: JUZL: this
 @pytest.fixture(scope="session")
 def mitie_feature_extractor(component_builder: ComponentBuilder, blank_config):
     mitie_nlp_config = {"name": "MitieNLP"}
