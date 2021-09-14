@@ -1,0 +1,76 @@
+version: "2.0"
+
+intents:
+  - greet
+  - thankyou
+  - affirm
+  - deny
+  - how_to_get_started
+  - nlu_fallback
+  - show_my_projects
+  - move_to_location
+  - open_project
+  - activate_daylight_controls
+  - deactivate_daylight_controls
+  - activate_rendering_controls
+  - deactivate_rendering_controls
+  - goodbye
+
+entities:
+  - name
+
+slots:
+  projects_list:
+    type: list
+    influence_conversation: true
+  daylight_controls:
+    type: bool
+    influence_conversation: true
+  rendering_controls:
+      type: bool
+      influence_conversation: true
+  drawing_object:
+    type: list
+    influence_conversation: true
+  projects:
+    type: list
+    influence_conversation: false
+  background_sounds_controls:
+    type: bool
+    influence_conversation: true
+
+responses:
+  utter_greet:
+    - text: "Hey there!"
+  utter_goodbye:
+    - text: "Goodbye :("
+  utter_default:
+    - text: "Sorry, I didn't get that, can you rephrase?"
+  utter_youarewelcome:
+    - text: "You're very welcome."
+  utter_iamabot:
+    - text: "I am a bot, powered by Rasa."
+  utter_get_started:
+    - text: "I can help you to design something. Do you like architecture or engineering ?"
+  utter_awesome:
+    - text: "Awesome! You can ask me things like \"Show me my projects\" or \"Let's go to London\" or \"Let's go to One Thousand Museum\""
+  utter_list_of_projects:
+    - text: "Here is the list of your projects"
+  utter_activate_daylight_controls:
+    - text: "You can change now the daylight conditions"
+  utter_activate_rendering_controls:
+    - text: "You can change now the rendering modes"
+  utter_activate_background_sound_controls:
+    - text: "You can change now the background sound"
+
+actions:
+  - show_list_of_projects
+  - action_move_to_location
+  - action_open_project
+  - action_activate_daylight_controls
+  - action_activate_rendering_controls
+  - action_set_background_sound_preference
+
+session_config:
+  session_expiration_time: 60  # value in minutes
+  carry_over_slots_to_new_session: true
